@@ -1,5 +1,4 @@
-
-import { NativeTabs } from 'expo-router/unstable-native-tabs';
+import { NativeTabs } from 'expo-router/native-tabs';
 import { useColorScheme } from 'react-native';
 
 import { Colors } from '@/constants/theme';
@@ -35,12 +34,21 @@ export default function AppTabs() {
         <NativeTabs.Trigger.Icon sf="fork.knife" />
       </NativeTabs.Trigger>
 
+      {/* Running screen tab */}
+      <NativeTabs.Trigger name="run">
+      <NativeTabs.Trigger.Label>
+        Run
+      </NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger.Icon sf="figure.run" />
+      </NativeTabs.Trigger>
+
       <NativeTabs.Trigger name="progress">
         <NativeTabs.Trigger.Label>
           Progress
         </NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="chart.xyaxis.line" />
       </NativeTabs.Trigger>
+
     </NativeTabs>
   );
 }

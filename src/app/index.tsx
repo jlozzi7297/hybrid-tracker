@@ -25,7 +25,7 @@ export default function HomeScreen() {
       <View style={styles.topRow}>
         <View>
           <Text style={styles.eyebrow}>YOUR FITNESS JOURNEY</Text>
-          <Text style={styles.title}>FitTrack</Text>
+          <Text style={styles.title}>Hybrid Tracker</Text>
         </View>
 
         <View style={styles.avatar}>
