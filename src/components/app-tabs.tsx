@@ -34,7 +34,6 @@ export default function AppTabs() {
         <NativeTabs.Trigger.Icon sf="fork.knife" />
       </NativeTabs.Trigger>
 
-      {/* Running screen tab */}
       <NativeTabs.Trigger name="run">
       <NativeTabs.Trigger.Label>
         Run
