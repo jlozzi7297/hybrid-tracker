@@ -20,6 +20,22 @@ export async function initializeDatabase() {
     );
   `);
 
+  // Check whether the workouts table already has a name column.
+  const workoutColumns = await db.getAllAsync<{ name: string }>(
+    'PRAGMA table_info(workouts);'
+  );
+
+  // Add the name column if this is an older database.
+  // Existing workouts will automatically receive the default name "Workout".
+  if (!workoutColumns.some((column) => column.name === 'name')) {
+    await db.execAsync(`
+      ALTER TABLE workouts
+      ADD COLUMN name TEXT NOT NULL DEFAULT 'Workout';
+    `);
+  }
+
+
+
   // Store completed running sessions.
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS runs (

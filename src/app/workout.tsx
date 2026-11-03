@@ -12,6 +12,7 @@ import {
   View,
   useColorScheme,
 } from 'react-native';
+import { KeyboardToolbar } from 'react-native-keyboard-controller';
 
 
 // A starter exercise library. Users can choose from these when adding exercises.
@@ -36,6 +37,9 @@ const exerciseLibrary = [
   'Calf Raise',
   'Deadlift',
   'Plank',
+  'Landmine RDL',
+  'Zercher Squats',
+
 ];
 
 // Each set stores its own weight, reps, and completion status.
@@ -53,9 +57,10 @@ type WorkoutExercise = {
   sets: WorkoutSet[];
 };
 
-// A small summary of a finished workout for the recent-workouts section.
+// A summary of a finished workout for the recent-workouts section.
 type WorkoutHistoryItem = {
   id: string;
+  name: string;
   date: string;
   duration: string;
   exerciseCount: number;
@@ -88,13 +93,45 @@ function formatDuration(totalSeconds: number) {
     .join(':');
 }
 
-  // Define the structure of a workout retrieved from SQLite.
-  type StoredWorkout = {
+// Convert an HH:MM:SS duration into total seconds.
+function parseDuration(value: string) {
+  const parts = value.trim().split(':').map((part) => Number.parseInt(part, 10));
+
+  if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part) || part < 0)) {
+    return null;
+  }
+
+  const [hours, minutes, seconds] = parts;
+  if (minutes > 59 || seconds > 59) {
+    return null;
+  }
+
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+// Defines the structure of a workout retrieved from SQLite.
+type StoredWorkout = {
   id: string;
+  name: string;
   date: string;
   duration: number;
   notes: string | null;
-  };
+};
+
+// Defines an exercise row retrieved from the workout database.
+type StoredExercise = {
+  id: string;
+  name: string;
+};
+
+// Defines a set row retrieved from the workout database.
+type StoredSet = {
+  id: string;
+  exercise_id: string;
+  weight: number | null;
+  reps: number | null;
+  completed: number;
+};
 
 export default function WorkoutScreen() {
   // Use the app's current light or dark theme.
@@ -109,6 +146,13 @@ export default function WorkoutScreen() {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
+  // Keep the workout name and editable duration with the current session.
+  const [workoutName, setWorkoutName] = useState('Workout');
+  const [durationDraft, setDurationDraft] = useState('00:00:00');
+
+  // A non-null ID means the current screen is editing an existing saved workout.
+  const [editingWorkoutId, setEditingWorkoutId] = useState<string | null>(null);
+
   // Store the exercises and sets for the current workout.
   const [exercises, setExercises] = useState<WorkoutExercise[]>([]);
 
@@ -119,50 +163,54 @@ export default function WorkoutScreen() {
   // Keep a short list of completed workouts in memory for this app session.
   const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistoryItem[]>([]);
 
-// Load the five most recent saved workouts when the screen opens.
-useEffect(() => {
-  async function loadWorkouts() {
-    try {
-      // Connect to the local database.
-      const db = await dbPromise;
 
-      // Retrieve the most recent workout records.
-      const savedWorkouts = await db.getAllAsync<StoredWorkout>(
-        'SELECT id, date, duration, notes FROM workouts ORDER BY date DESC LIMIT 5'
-      );
+  // Load the five most recent saved workouts when the screen opens.
+  useEffect(() => {
+    async function loadWorkouts() {
+      try {
+        // Connect to the local database.
+        const db = await dbPromise;
 
-      // Convert database records into the format used by the screen.
-      setWorkoutHistory(
-        savedWorkouts.map((workout) => {
-          let exerciseCount = 0;
-          let setCount = 0;
+        // Retrieve recent workouts, including their saved names.
+        const savedWorkouts = await db.getAllAsync<StoredWorkout>(
+          'SELECT id, name, date, duration, notes FROM workouts ORDER BY date DESC LIMIT 5'
+        );
 
-          // Recover the exercise and set counts from the notes field.
-          try {
-            const details = JSON.parse(workout.notes || '{}');
-            exerciseCount = details.exerciseCount || 0;
-            setCount = details.setCount || 0;
-          } catch {
-            // Keep default counts if the saved notes aren't valid JSON.
-          }
+        // Convert database records into the format used by the screen.
+        setWorkoutHistory(
+          savedWorkouts.map((workout) => {
+            let exerciseCount = 0;
+            let setCount = 0;
 
-          return {
-            id: workout.id,
-            date: new Date(workout.date).toLocaleDateString(),
-            duration: formatDuration(workout.duration),
-            exerciseCount,
-            setCount,
-          };
-        })
-      );
-    } catch (error) {
-      // Log database errors so they can be diagnosed.
-      console.error('Failed to load workouts:', error);
+            // Recover exercise and set counts from the notes field.
+            try {
+              const details = JSON.parse(workout.notes || '{}');
+              exerciseCount = details.exerciseCount || 0;
+              setCount = details.setCount || 0;
+            } catch {
+              // Keep default counts if the saved notes aren't valid JSON.
+            }
+
+            return {
+              id: workout.id,
+              name: workout.name,
+              date: new Date(workout.date).toLocaleDateString(),
+              duration: formatDuration(workout.duration ?? 0),
+              exerciseCount,
+              setCount,
+            };
+          })
+        );
+      } catch (error) {
+        // Log database errors so they can be diagnosed.
+        console.error('Failed to load workouts:', error);
+      }
     }
-  }
 
-  loadWorkouts();
-}, []);
+    // Run the database query after the screen mounts.
+    loadWorkouts();
+  }, []);
+
   // Update the timer once per second while a workout is active.
   useEffect(() => {
     if (!workoutActive || startedAt === null) {
@@ -192,9 +240,84 @@ useEffect(() => {
   // Start a fresh workout and begin the timer.
   function startWorkout() {
     setExercises([]);
+    setWorkoutName('Workout');
     setElapsedSeconds(0);
+    setDurationDraft('00:00:00');
+    setEditingWorkoutId(null);
     setStartedAt(Date.now());
     setWorkoutActive(true);
+  }
+
+  // Load a saved workout and all its exercises and sets into the editor.
+  async function editSavedWorkout(workoutId: string) {
+    try {
+      const db = await dbPromise;
+      const workout = await db.getFirstAsync<StoredWorkout>(
+        'SELECT id, name, date, duration, notes FROM workouts WHERE id = ?',
+        workoutId,
+      );
+
+      if (!workout) {
+        Alert.alert('Workout not found', 'This saved workout could not be found.');
+        return;
+      }
+
+      const savedExercises = await db.getAllAsync<StoredExercise>(
+        'SELECT id, name FROM workout_exercises WHERE workout_id = ? ORDER BY rowid',
+        workoutId,
+      );
+
+      const loadedExercises: WorkoutExercise[] = [];
+      for (const exercise of savedExercises) {
+        const savedSets = await db.getAllAsync<StoredSet>(
+          'SELECT id, exercise_id, weight, reps, completed FROM workout_sets WHERE exercise_id = ? ORDER BY rowid',
+          exercise.id,
+        );
+
+        loadedExercises.push({
+          id: exercise.id,
+          name: exercise.name,
+          sets: savedSets.map((set) => ({
+            id: set.id,
+            weight: set.weight === null ? '' : String(set.weight),
+            reps: set.reps === null ? '' : String(set.reps),
+            completed: set.completed === 1,
+          })),
+        });
+      }
+
+      setEditingWorkoutId(workout.id);
+      setWorkoutName(workout.name || 'Workout');
+      setElapsedSeconds(workout.duration || 0);
+      setDurationDraft(formatDuration(workout.duration || 0));
+      setExercises(loadedExercises);
+      setStartedAt(null);
+      setWorkoutActive(true);
+    } catch (error) {
+      console.error('Failed to load workout for editing:', error);
+      Alert.alert('Edit failed', 'Could not load this workout. Please try again.');
+    }
+  }
+
+  // Delete a saved workout; SQLite foreign keys remove its exercises and sets.
+  function deleteSavedWorkout(workoutId: string) {
+    Alert.alert('Delete workout?', 'This will permanently delete the workout and all its exercises and sets.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const db = await dbPromise;
+            await db.runAsync('DELETE FROM workouts WHERE id = ?', workoutId);
+            setWorkoutHistory((current) => current.filter((item) => item.id !== workoutId));
+          } catch (error) {
+            console.error('Failed to delete workout:', error);
+            Alert.alert('Delete failed', 'Could not delete this workout. Please try again.');
+          }
+        },
+      },
+    ]);
   }
 
   // Add a selected exercise with three editable starter sets.
@@ -302,96 +425,119 @@ useEffect(() => {
     setExercises((current) => current.filter((exercise) => exercise.id !== exerciseId));
   }
 
-// Finish the workout and save its summary, exercises, and sets to SQLite.
+// Save a new workout or update an existing saved workout in SQLite.
 async function finishWorkout() {
   if (exercises.length === 0) {
-    Alert.alert(
-      'No exercises added',
-      'Add at least one exercise before finishing your workout.'
-    );
+    Alert.alert('No exercises added', 'Add at least one exercise before saving your workout.');
     return;
   }
 
+  // Validate the editable duration before writing anything to the database.
+  const finalDuration = editingWorkoutId !== null ? parseDuration(durationDraft) : elapsedSeconds;
+  if (finalDuration === null) {
+    Alert.alert('Invalid duration', 'Enter the duration as HH:MM:SS, for example 01:15:00.');
+    return;
+  }
+
+  const cleanName = workoutName.trim() || 'Workout';
+
   try {
-    // Connect to the local database.
     const db = await dbPromise;
-
-    // Generate a unique ID and timestamp for this workout.
-    const workoutId = createId();
+    const workoutId = editingWorkoutId ?? createId();
     const workoutDate = new Date().toISOString();
+    const completedSetCount = exercises.reduce(
+      (total, exercise) => total + exercise.sets.filter((set) => set.completed).length,
+      0,
+    );
+    const allSetCount = exercises.reduce((total, exercise) => total + exercise.sets.length, 0);
 
-    // Store the workout and all related records in one transaction.
+    // Save the workout and its related records as one database transaction.
     await db.withTransactionAsync(async () => {
-      // Insert the main workout record.
-      await db.runAsync(
-        `INSERT INTO workouts (id, date, duration, notes)
-         VALUES (?, ?, ?, ?)`,
-        workoutId,
-        workoutDate,
-        elapsedSeconds,
-        JSON.stringify({
-          exerciseCount: exercises.length,
-          setCount: completedSets, // Save completed sets as the default history count.
-          totalSets: totalSets, // Preserve total sets for future settings.
-        })
-      );
-
-      // Save every exercise belonging to this workout.
-      for (const exercise of exercises) {
+      if (editingWorkoutId !== null) {
+        // Update the saved workout's name, duration, and summary.
         await db.runAsync(
-          `INSERT INTO workout_exercises (id, workout_id, name)
-           VALUES (?, ?, ?)`,
-          exercise.id,
+          'UPDATE workouts SET name = ?, duration = ?, notes = ? WHERE id = ?',
+          cleanName,
+          finalDuration,
+          JSON.stringify({
+            exerciseCount: exercises.length,
+            setCount: completedSetCount,
+            totalSets: allSetCount,
+          }),
           workoutId,
-          exercise.name
         );
 
-        // Save every set belonging to this exercise.
+        // Remove old child rows; the updated exercise and set rows are inserted below.
+        await db.runAsync('DELETE FROM workout_exercises WHERE workout_id = ?', workoutId);
+      } else {
+        // Insert the main record for a brand-new workout.
+        await db.runAsync(
+          `INSERT INTO workouts (id, name, date, duration, notes)
+           VALUES (?, ?, ?, ?, ?)`,
+          workoutId,
+          cleanName,
+          workoutDate,
+          finalDuration,
+          JSON.stringify({
+            exerciseCount: exercises.length,
+            setCount: completedSetCount,
+            totalSets: allSetCount,
+          }),
+        );
+      }
+
+      // Save each exercise and its sets, whether this is new or edited.
+      for (const exercise of exercises) {
+        await db.runAsync(
+          'INSERT INTO workout_exercises (id, workout_id, name) VALUES (?, ?, ?)',
+          exercise.id,
+          workoutId,
+          exercise.name,
+        );
+
         for (const set of exercise.sets) {
-          // Convert input strings into numbers for SQLite.
-          const weight = set.weight.trim() !== ''
-            ? Number.parseFloat(set.weight)
-            : null;
+          const weight = set.weight.trim() === '' ? null : Number.parseFloat(set.weight);
+          const reps = set.reps.trim() === '' ? null : Number.parseInt(set.reps, 10);
 
-          const reps = set.reps.trim() !== ''
-            ? Number.parseInt(set.reps, 10)
-            : null;
-
-          // Insert the set details, including completion status.
           await db.runAsync(
-            `INSERT INTO workout_sets
-             (id, exercise_id, weight, reps, completed)
+            `INSERT INTO workout_sets (id, exercise_id, weight, reps, completed)
              VALUES (?, ?, ?, ?, ?)`,
             set.id,
             exercise.id,
             weight !== null && Number.isFinite(weight) ? weight : null,
             reps !== null && Number.isFinite(reps) ? reps : null,
-            set.completed ? 1 : 0
+            set.completed ? 1 : 0,
           );
         }
       }
     });
 
-    // Update recent workout history on screen.
+    // Update the recent-workouts list after the database transaction succeeds.
     const historyItem: WorkoutHistoryItem = {
       id: workoutId,
-      date: new Date(workoutDate).toLocaleDateString(),
-      duration: formatDuration(elapsedSeconds),
+      name: cleanName,
+      date: editingWorkoutId !== null
+        ? (workoutHistory.find((item) => item.id === workoutId)?.date ?? new Date().toLocaleDateString())
+        : new Date(workoutDate).toLocaleDateString(),
+      duration: formatDuration(finalDuration),
       exerciseCount: exercises.length,
-      setCount: completedSets, // Display completed sets only.
+      setCount: completedSetCount,
     };
 
-    setWorkoutHistory((current) => [historyItem, ...current].slice(0, 5));
+    setWorkoutHistory((current) => {
+      const withoutEditedItem = current.filter((item) => item.id !== workoutId);
+      return [historyItem, ...withoutEditedItem].slice(0, 5);
+    });
 
-    // Reset the active workout after the database save succeeds.
     setWorkoutActive(false);
     setStartedAt(null);
+    setEditingWorkoutId(null);
     setExercises([]);
+    setWorkoutName('Workout');
     setElapsedSeconds(0);
-
-    Alert.alert('Workout saved', 'Your workout and exercise details were saved!');
+    setDurationDraft('00:00:00');
+    Alert.alert('Workout saved', editingWorkoutId !== null ? 'Your changes were saved.' : 'Your workout and exercise details were saved!');
   } catch (error) {
-    // Keep the workout on screen if saving fails.
     console.error('Failed to save workout:', error);
     Alert.alert('Save failed', 'Could not save your workout. Please try again.');
   }
@@ -408,8 +554,11 @@ function cancelWorkout() {
       onPress: () => {
         setWorkoutActive(false);
         setStartedAt(null);
+        setEditingWorkoutId(null);
         setExercises([]);
+        setWorkoutName('Workout');
         setElapsedSeconds(0);
+        setDurationDraft('00:00:00');
       },
     },
   ]);
@@ -450,12 +599,20 @@ function cancelWorkout() {
             workoutHistory.map((item) => (
               <View key={item.id} style={styles.historyCard}>
                 <View style={styles.historyTop}>
-                  <Text style={styles.historyName}>Workout</Text>
+                  <Text style={styles.historyName}>{item.name}</Text>
                   <Text style={styles.historyDuration}>{item.duration}</Text>
                 </View>
                 <Text style={styles.muted}>
-                  {item.date} · {item.exerciseCount} exercises · {item.setCount} sets
+                  {item.date} · {item.exerciseCount} exercises · {item.setCount} completed sets
                 </Text>
+                <View style={styles.historyActions}>
+                  <Pressable style={styles.historyActionButton} onPress={() => editSavedWorkout(item.id)}>
+                    <Text style={styles.historyActionText}>Edit</Text>
+                  </Pressable>
+                  <Pressable style={styles.historyActionButton} onPress={() => deleteSavedWorkout(item.id)}>
+                    <Text style={styles.deleteActionText}>Delete</Text>
+                  </Pressable>
+                </View>
               </View>
             ))
           )}
@@ -466,16 +623,40 @@ function cancelWorkout() {
           <View style={styles.activeHeader}>
             <View>
               <Text style={styles.eyebrow}>WORKOUT IN PROGRESS</Text>
-              <Text style={styles.title}>Your Workout</Text>
+              <Text style={styles.title}>{editingWorkoutId !== null ? 'Edit Workout' : 'Your Workout'}</Text>
             </View>
             <Pressable onPress={cancelWorkout} hitSlop={10}>
               <Text style={styles.cancelText}>Discard</Text>
             </Pressable>
           </View>
 
+          <View style={styles.nameCard}>
+            <Text style={styles.timerLabel}>WORKOUT NAME</Text>
+            <TextInput
+              style={styles.nameInput}
+              value={workoutName}
+              onChangeText={setWorkoutName}
+              placeholder="Workout name"
+              placeholderTextColor={colors.textSecondary}
+              maxLength={50}
+            />
+          </View>
+
           <View style={styles.timerCard}>
-            <Text style={styles.timerLabel}>DURATION</Text>
-            <Text style={styles.timer}>{formatDuration(elapsedSeconds)}</Text>
+            <Text style={styles.timerLabel}>DURATION {editingWorkoutId !== null ? '(HH:MM:SS)' : ''}</Text>
+            {editingWorkoutId !== null ? (
+              <TextInput
+                style={styles.durationInput}
+                value={durationDraft}
+                onChangeText={setDurationDraft}
+                placeholder="00:45:00"
+                placeholderTextColor={colors.textSecondary}
+                keyboardType="numbers-and-punctuation"
+                accessibilityLabel="Workout duration in hours, minutes, and seconds"
+              />
+            ) : (
+              <Text style={styles.timer}>{formatDuration(elapsedSeconds)}</Text>
+            )}
             <Text style={styles.muted}>{completedSets} of {totalSets} sets completed</Text>
           </View>
 
@@ -565,7 +746,7 @@ function cancelWorkout() {
           </Pressable>
 
           <Pressable style={styles.primaryButton} onPress={finishWorkout}>
-            <Text style={styles.primaryButtonText}>Finish Workout</Text>
+            <Text style={styles.primaryButtonText}>{editingWorkoutId !== null ? 'Save Changes' : 'Finish Workout'}</Text>
           </Pressable>
         </ScrollView>
       )}
@@ -619,6 +800,8 @@ function cancelWorkout() {
           </View>
         </View>
       </Modal>
+            {/* Shows keyboard navigation and a Done button when an input is focused. */}
+      <KeyboardToolbar />
     </View>
   );
 }
@@ -759,6 +942,50 @@ function createStyles(colors: (typeof Colors)['light'] | (typeof Colors)['dark']
       color: colors.accent,
       fontWeight: '800',
       fontVariant: ['tabular-nums'],
+    },
+    historyActions: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 8,
+    },
+    historyActionButton: {
+      paddingVertical: 8,
+      paddingHorizontal: 14,
+      borderRadius: 9,
+      backgroundColor: colors.backgroundSelected,
+    },
+    historyActionText: {
+      color: colors.accent,
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    deleteActionText: {
+      color: '#D9534F',
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    nameCard: {
+      backgroundColor: colors.backgroundElement,
+      borderColor: colors.border,
+      borderWidth: 1,
+      borderRadius: 14,
+      padding: 14,
+      gap: 8,
+    },
+    nameInput: {
+      color: colors.text,
+      fontSize: 17,
+      fontWeight: '700',
+      paddingVertical: 5,
+    },
+    durationInput: {
+      color: colors.text,
+      fontSize: 30,
+      fontWeight: '800',
+      fontVariant: ['tabular-nums'],
+      textAlign: 'center',
+      minWidth: 180,
+      paddingVertical: 4,
     },
     muted: {
       color: colors.textSecondary,
