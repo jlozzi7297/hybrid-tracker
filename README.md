@@ -1,56 +1,153 @@
-# Welcome to your Expo app 👋
+# 🏋️ Hybrid Tracker
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+**One app. Every part of your fitness journey.**
 
-## Get started
+Hybrid Tracker is a cross-platform fitness tracking application built with React Native, Expo, and TypeScript. It brings workout tracking, nutrition, running, and fitness progress together in one place.
 
-1. Install dependencies
+The goal is to create a centralized fitness platform that makes it easier to track performance, monitor consistency, and understand long-term progress.
 
-   ```bash
-   npm install
-   ```
+---
 
-2. Start the app
+## ✨ Features
 
-   ```bash
-   npx expo start
-   ```
+### 🏠 Dashboard
+- Centralized fitness overview.
+- Quick access to workouts, nutrition, running, and progress.
 
-In the output, you'll find options to open the app in a
+### 💪 Workout Tracking
+- Track strength-training sessions.
+- Record exercises, sets, reps, and weight.
+- Manage workout sessions and track performance.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### 🥗 Nutrition Tracking
+- Track daily calorie intake.
+- Monitor macronutrients.
+- Build a clearer picture of daily nutrition.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+### 🏃 Running
+- GPS-based run tracking on iOS.
+- Track distance, elapsed time, and average pace.
+- Record GPS coordinates and visualize running routes.
 
-## Get a fresh project
+### 📊 Progress
+- Monitor fitness activity and performance.
+- Bring workout and running data together.
+- Build a foundation for long-term progress analytics.
 
-When you're ready, run:
+### 🎨 Interface
+- Light and dark themes.
+- Blue accents in light mode and green accents in dark mode.
+- Platform-specific navigation and screen layouts.
+
+---
+
+## 🛠️ Tech Stack
+
+| Technology | Purpose |
+|---|---|
+| TypeScript | Application development |
+| React Native | Cross-platform UI |
+| Expo SDK 58 | Development framework |
+| Expo Router | File-based navigation |
+| React Native Maps | Native map integration |
+| Expo Location | GPS and location services |
+| AsyncStorage | Local data persistence |
+| Git & GitHub | Version control |
+
+---
+
+## 📱 Platforms
+
+- **iOS:** Native application with GPS functionality.
+- **Web:** Browser-based development and testing experience.
+- **Android:** Future platform consideration.
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Node.js
+- npm
+- Git
+- VS Code (recommended)
+
+### Installation
+
+Clone the repository:
 
 ```bash
-npm run reset-project
+git clone https://github.com/YOUR-GITHUB-USERNAME/hybrid-tracker.git
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Navigate into the project:
 
-### Other setup steps
+```bash
+cd hybrid-tracker
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+Install dependencies:
 
-## Learn more
+```bash
+npm install
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+### Run the application
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Start the Expo development server:
 
-## Join the community
+```bash
+npx expo start
+```
 
-Join our community of developers creating universal apps.
+Run the web version:
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+npx expo start --web
+```
+
+---
+
+## 🗺️ Development Roadmap
+
+- [x] Initial Expo and TypeScript project setup
+- [x] Custom application navigation
+- [x] Light and dark theme foundations
+- [x] Workout tracking interface
+- [x] Platform-specific web navigation
+- [x] Web-compatible Run screen
+- [x] Native GPS running functionality
+- [ ] Persistent workout history
+- [ ] Nutrition database and food search
+- [ ] Persistent running history
+- [ ] Progress analytics and visualizations
+- [ ] User profiles and settings
+- [ ] Cloud synchronization and backend integration
+
+---
+
+## 🎯 Project Goals
+
+Hybrid Tracker is being developed as a practical fitness application and an opportunity to explore modern software development.
+
+Areas of focus include:
+
+- Cross-platform application architecture
+- TypeScript and component-based development
+- Native device integrations
+- Data persistence and management
+- User interface design
+- Future backend and cloud integration
+
+---
+
+## 📌 Project Status
+
+**Active Development**
+
+Hybrid Tracker is a work in progress. Features, architecture, and design will continue to evolve as development progresses.
+
+---
+
+*Built with React Native, Expo, and TypeScript.*

@@ -1,4 +1,5 @@
 import { Colors } from '@/constants/theme';
+import { dbPromise } from '@/database/database';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -11,6 +12,7 @@ import {
   View,
   useColorScheme,
 } from 'react-native';
+
 
 // A starter exercise library. Users can choose from these when adding exercises.
 const exerciseLibrary = [
@@ -86,12 +88,20 @@ function formatDuration(totalSeconds: number) {
     .join(':');
 }
 
+  // Define the structure of a workout retrieved from SQLite.
+  type StoredWorkout = {
+  id: string;
+  date: string;
+  duration: number;
+  notes: string | null;
+  };
+
 export default function WorkoutScreen() {
   // Use the app's current light or dark theme.
   const scheme = useColorScheme();
   const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
   const styles = createStyles(colors);
-
+  
   // Track whether the user is currently in a workout.
   const [workoutActive, setWorkoutActive] = useState(false);
 
@@ -109,6 +119,50 @@ export default function WorkoutScreen() {
   // Keep a short list of completed workouts in memory for this app session.
   const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistoryItem[]>([]);
 
+// Load the five most recent saved workouts when the screen opens.
+useEffect(() => {
+  async function loadWorkouts() {
+    try {
+      // Connect to the local database.
+      const db = await dbPromise;
+
+      // Retrieve the most recent workout records.
+      const savedWorkouts = await db.getAllAsync<StoredWorkout>(
+        'SELECT id, date, duration, notes FROM workouts ORDER BY date DESC LIMIT 5'
+      );
+
+      // Convert database records into the format used by the screen.
+      setWorkoutHistory(
+        savedWorkouts.map((workout) => {
+          let exerciseCount = 0;
+          let setCount = 0;
+
+          // Recover the exercise and set counts from the notes field.
+          try {
+            const details = JSON.parse(workout.notes || '{}');
+            exerciseCount = details.exerciseCount || 0;
+            setCount = details.setCount || 0;
+          } catch {
+            // Keep default counts if the saved notes aren't valid JSON.
+          }
+
+          return {
+            id: workout.id,
+            date: new Date(workout.date).toLocaleDateString(),
+            duration: formatDuration(workout.duration),
+            exerciseCount,
+            setCount,
+          };
+        })
+      );
+    } catch (error) {
+      // Log database errors so they can be diagnosed.
+      console.error('Failed to load workouts:', error);
+    }
+  }
+
+  loadWorkouts();
+}, []);
   // Update the timer once per second while a workout is active.
   useEffect(() => {
     if (!workoutActive || startedAt === null) {
@@ -248,47 +302,118 @@ export default function WorkoutScreen() {
     setExercises((current) => current.filter((exercise) => exercise.id !== exerciseId));
   }
 
-  // Finish the workout, save a summary, and return to the starting screen.
-  function finishWorkout() {
-    if (exercises.length === 0) {
-      Alert.alert('No exercises added', 'Add at least one exercise before finishing your workout.');
-      return;
-    }
+// Finish the workout and save its summary, exercises, and sets to SQLite.
+async function finishWorkout() {
+  if (exercises.length === 0) {
+    Alert.alert(
+      'No exercises added',
+      'Add at least one exercise before finishing your workout.'
+    );
+    return;
+  }
 
-    const duration = formatDuration(elapsedSeconds);
+  try {
+    // Connect to the local database.
+    const db = await dbPromise;
+
+    // Generate a unique ID and timestamp for this workout.
+    const workoutId = createId();
+    const workoutDate = new Date().toISOString();
+
+    // Store the workout and all related records in one transaction.
+    await db.withTransactionAsync(async () => {
+      // Insert the main workout record.
+      await db.runAsync(
+        `INSERT INTO workouts (id, date, duration, notes)
+         VALUES (?, ?, ?, ?)`,
+        workoutId,
+        workoutDate,
+        elapsedSeconds,
+        JSON.stringify({
+          exerciseCount: exercises.length,
+          setCount: completedSets, // Save completed sets as the default history count.
+          totalSets: totalSets, // Preserve total sets for future settings.
+        })
+      );
+
+      // Save every exercise belonging to this workout.
+      for (const exercise of exercises) {
+        await db.runAsync(
+          `INSERT INTO workout_exercises (id, workout_id, name)
+           VALUES (?, ?, ?)`,
+          exercise.id,
+          workoutId,
+          exercise.name
+        );
+
+        // Save every set belonging to this exercise.
+        for (const set of exercise.sets) {
+          // Convert input strings into numbers for SQLite.
+          const weight = set.weight.trim() !== ''
+            ? Number.parseFloat(set.weight)
+            : null;
+
+          const reps = set.reps.trim() !== ''
+            ? Number.parseInt(set.reps, 10)
+            : null;
+
+          // Insert the set details, including completion status.
+          await db.runAsync(
+            `INSERT INTO workout_sets
+             (id, exercise_id, weight, reps, completed)
+             VALUES (?, ?, ?, ?, ?)`,
+            set.id,
+            exercise.id,
+            weight !== null && Number.isFinite(weight) ? weight : null,
+            reps !== null && Number.isFinite(reps) ? reps : null,
+            set.completed ? 1 : 0
+          );
+        }
+      }
+    });
+
+    // Update recent workout history on screen.
     const historyItem: WorkoutHistoryItem = {
-      id: createId(),
-      date: new Date().toLocaleDateString(),
-      duration,
+      id: workoutId,
+      date: new Date(workoutDate).toLocaleDateString(),
+      duration: formatDuration(elapsedSeconds),
       exerciseCount: exercises.length,
-      setCount: totalSets,
+      setCount: completedSets, // Display completed sets only.
     };
 
     setWorkoutHistory((current) => [historyItem, ...current].slice(0, 5));
+
+    // Reset the active workout after the database save succeeds.
     setWorkoutActive(false);
     setStartedAt(null);
     setExercises([]);
     setElapsedSeconds(0);
 
-    Alert.alert('Workout saved', `Duration: ${duration}\nExercises: ${historyItem.exerciseCount}\nSets: ${historyItem.setCount}`);
+    Alert.alert('Workout saved', 'Your workout and exercise details were saved!');
+  } catch (error) {
+    // Keep the workout on screen if saving fails.
+    console.error('Failed to save workout:', error);
+    Alert.alert('Save failed', 'Could not save your workout. Please try again.');
   }
+}
 
-  // Ask before discarding an active workout.
-  function cancelWorkout() {
-    Alert.alert('Discard workout?', 'Your current workout will be lost.', [
-      { text: 'Keep working out', style: 'cancel' },
-      {
-        text: 'Discard',
-        style: 'destructive',
-        onPress: () => {
-          setWorkoutActive(false);
-          setStartedAt(null);
-          setExercises([]);
-          setElapsedSeconds(0);
-        },
+
+// Ask before discarding an active workout.
+function cancelWorkout() {
+  Alert.alert('Discard workout?', 'Your current workout will be lost.', [
+    { text: 'Keep working out', style: 'cancel' },
+    {
+      text: 'Discard',
+      style: 'destructive',
+      onPress: () => {
+        setWorkoutActive(false);
+        setStartedAt(null);
+        setExercises([]);
+        setElapsedSeconds(0);
       },
-    ]);
-  }
+    },
+  ]);
+}
 
   return (
     <View style={styles.container}>

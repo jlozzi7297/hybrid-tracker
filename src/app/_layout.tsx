@@ -1,11 +1,22 @@
 
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import { useColorScheme } from 'react-native';
+import { useEffect } from 'react';
+import { Platform, useColorScheme } from 'react-native';
 
 import AppTabs from '@/components/app-tabs';
+import { initializeDatabase } from '@/database/database';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+
+  // Initialize SQLite on native platforms only for now.
+useEffect(() => {
+  if (Platform.OS !== 'web') {
+    initializeDatabase().catch((error) => {
+      console.error('Failed to initialize database:', error);
+    });
+  }
+}, []);
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
