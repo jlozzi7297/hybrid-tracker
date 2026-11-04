@@ -1,9 +1,12 @@
 import { Colors } from '@/constants/theme';
 import { dbPromise } from '@/database/database';
 import { useEffect, useMemo, useState } from 'react';
+// Provides swipe gestures for workout history cards.
 import {
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,8 +15,12 @@ import {
   View,
   useColorScheme,
 } from 'react-native';
-import { KeyboardToolbar } from 'react-native-keyboard-controller';
-
+import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
+import {
+  KeyboardAwareScrollView,
+  KeyboardToolbar,
+} from 'react-native-keyboard-controller';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // A starter exercise library. Users can choose from these when adding exercises.
 const exerciseLibrary = [
@@ -30,15 +37,18 @@ const exerciseLibrary = [
   'Bicep Curl',
   'Hammer Curl',
   'Squat',
+  'Landmine RDL',
+  'Zercher Squats',
   'Leg Press',
   'Romanian Deadlift',
   'Leg Curl',
   'Leg Extension',
+  'Hip Abductors',
+  'Hip Adductors',
   'Calf Raise',
   'Deadlift',
   'Plank',
-  'Landmine RDL',
-  'Zercher Squats',
+  
 
 ];
 
@@ -50,6 +60,11 @@ type WorkoutSet = {
   completed: boolean;
 };
 
+// Stores the weight and reps from a previous workout.
+type PreviousSet = {
+  weight: number | null;
+  reps: number | null;
+};
 // Each exercise contains a list of individually editable sets.
 type WorkoutExercise = {
   id: string;
@@ -76,8 +91,8 @@ function createId() {
 function createSet(): WorkoutSet {
   return {
     id: createId(),
-    weight: '0',
-    reps: '8',
+    weight: '',
+    reps: '',
     completed: false,
   };
 }
@@ -163,6 +178,10 @@ export default function WorkoutScreen() {
   // Keep a short list of completed workouts in memory for this app session.
   const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistoryItem[]>([]);
 
+  // Stores previous performance for each exercise, keyed by exercise name.
+const [previousPerformance, setPreviousPerformance] = useState<
+  Record<string, PreviousSet[]>
+>({});
 
   // Load the five most recent saved workouts when the screen opens.
   useEffect(() => {
@@ -321,16 +340,55 @@ export default function WorkoutScreen() {
   }
 
   // Add a selected exercise with three editable starter sets.
-  function addExercise(name: string) {
-    const alreadyAdded = exercises.some(
-      (exercise) => exercise.name.toLowerCase() === name.toLowerCase(),
+// Add an exercise and retrieve its previous workout performance.
+async function addExercise(name: string) {
+  const alreadyAdded = exercises.some(
+    (exercise) => exercise.name.toLowerCase() === name.toLowerCase(),
+  );
+
+  if (alreadyAdded) {
+    Alert.alert('Exercise already added', `${name} is already in this workout.`);
+    return;
+  }
+
+  try {
+    const db = await dbPromise;
+
+    // Find the most recent workout containing this exercise.
+    // Exclude the workout currently being edited.
+    const previousExercise = await db.getFirstAsync<{ id: string }>(
+      `SELECT we.id
+       FROM workout_exercises we
+       JOIN workouts w ON w.id = we.workout_id
+       WHERE LOWER(we.name) = LOWER(?)
+       AND (? IS NULL OR w.id != ?)
+       ORDER BY w.date DESC
+       LIMIT 1`,
+      name,
+      editingWorkoutId,
+      editingWorkoutId,
     );
 
-    if (alreadyAdded) {
-      Alert.alert('Exercise already added', `${name} is already in this workout.`);
-      return;
+    let previousSets: PreviousSet[] = [];
+
+    if (previousExercise) {
+      // Retrieve the previous weights and reps in set order.
+      previousSets = await db.getAllAsync<PreviousSet>(
+        `SELECT weight, reps
+         FROM workout_sets
+         WHERE exercise_id = ?
+         ORDER BY rowid ASC`,
+        previousExercise.id,
+      );
     }
 
+    // Store historical performance separately from editable sets.    
+    setPreviousPerformance((current) => ({
+      ...current,
+      [name.toLowerCase()]: previousSets,
+    }));
+
+    // Create three new, empty sets.
     const newExercise: WorkoutExercise = {
       id: createId(),
       name,
@@ -340,7 +398,11 @@ export default function WorkoutScreen() {
     setExercises((current) => [...current, newExercise]);
     setPickerVisible(false);
     setExerciseSearch('');
+  } catch (error) {
+    console.error('Failed to retrieve previous exercise performance:', error);
+    Alert.alert('Exercise error', 'Could not retrieve previous exercise history.');
   }
+}
 
   // Add a custom exercise name typed into the search field.
   function addCustomExercise() {
@@ -565,7 +627,7 @@ function cancelWorkout() {
 }
 
   return (
-    <View style={styles.container}>
+  <SafeAreaView style={styles.container} edges={['top']}>
       {!workoutActive ? (
         // Simple landing screen shown before a workout starts.
         <ScrollView contentContainerStyle={styles.content}>
@@ -597,29 +659,49 @@ function cancelWorkout() {
             </View>
           ) : (
             workoutHistory.map((item) => (
-              <View key={item.id} style={styles.historyCard}>
-                <View style={styles.historyTop}>
-                  <Text style={styles.historyName}>{item.name}</Text>
-                  <Text style={styles.historyDuration}>{item.duration}</Text>
-                </View>
-                <Text style={styles.muted}>
-                  {item.date} · {item.exerciseCount} exercises · {item.setCount} completed sets
-                </Text>
-                <View style={styles.historyActions}>
-                  <Pressable style={styles.historyActionButton} onPress={() => editSavedWorkout(item.id)}>
-                    <Text style={styles.historyActionText}>Edit</Text>
-                  </Pressable>
-                  <Pressable style={styles.historyActionButton} onPress={() => deleteSavedWorkout(item.id)}>
-                    <Text style={styles.deleteActionText}>Delete</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ))
+  <ReanimatedSwipeable
+    key={item.id}
+    overshootRight={false}
+    renderRightActions={() => (
+      <View style={styles.historySwipeActions}>
+        {/* Edit the selected workout. */}
+        <Pressable
+          style={styles.swipeEditButton}
+          onPress={() => editSavedWorkout(item.id)}
+        >
+          <Text style={styles.swipeActionText}>Edit</Text>
+        </Pressable>
+
+        {/* Delete the selected workout. */}
+        <Pressable
+          style={styles.swipeDeleteButton}
+          onPress={() => deleteSavedWorkout(item.id)}
+        >
+          <Text style={styles.swipeActionText}>Delete</Text>
+        </Pressable>
+      </View>
+    )}
+  >
+    <View style={styles.historyCard}>
+      <View style={styles.historyTop}>
+        <Text style={styles.historyName}>{item.name}</Text>
+        <Text style={styles.historyDuration}>{item.duration}</Text>
+      </View>
+
+      <Text style={styles.muted}>
+        {item.date} · {item.exerciseCount} exercises · {item.setCount} completed sets
+      </Text>
+    </View>
+  </ReanimatedSwipeable>
+))
           )}
         </ScrollView>
       ) : (
         // Active workout screen with timer, exercises, and editable sets.
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <KeyboardAwareScrollView
+  contentContainerStyle={styles.content}
+  keyboardShouldPersistTaps="handled"
+  bottomOffset={20}>
           <View style={styles.activeHeader}>
             <View>
               <Text style={styles.eyebrow}>WORKOUT IN PROGRESS</Text>
@@ -628,18 +710,6 @@ function cancelWorkout() {
             <Pressable onPress={cancelWorkout} hitSlop={10}>
               <Text style={styles.cancelText}>Discard</Text>
             </Pressable>
-          </View>
-
-          <View style={styles.nameCard}>
-            <Text style={styles.timerLabel}>WORKOUT NAME</Text>
-            <TextInput
-              style={styles.nameInput}
-              value={workoutName}
-              onChangeText={setWorkoutName}
-              placeholder="Workout name"
-              placeholderTextColor={colors.textSecondary}
-              maxLength={50}
-            />
           </View>
 
           <View style={styles.timerCard}>
@@ -658,6 +728,18 @@ function cancelWorkout() {
               <Text style={styles.timer}>{formatDuration(elapsedSeconds)}</Text>
             )}
             <Text style={styles.muted}>{completedSets} of {totalSets} sets completed</Text>
+          </View>
+
+          <View style={styles.nameCard}>
+            <Text style={styles.timerLabel}>WORKOUT NAME</Text>
+            <TextInput
+              style={styles.nameInput}
+              value={workoutName}
+              onChangeText={setWorkoutName}
+              placeholder="Workout name"
+              placeholderTextColor={colors.textSecondary}
+              maxLength={50}
+            />
           </View>
 
           <View style={styles.sectionHeader}>
@@ -703,9 +785,9 @@ function cancelWorkout() {
                       value={set.weight}
                       onChangeText={(value) => updateSet(exercise.id, set.id, 'weight', value)}
                       keyboardType="decimal-pad"
-                      placeholder="0"
+                      placeholder={
+                        previousPerformance[exercise.name.toLowerCase()]?.[setIndex]?.weight?.toString() ?? '0'}
                       placeholderTextColor={colors.textSecondary}
-                      selectTextOnFocus
                       accessibilityLabel={`Weight for ${exercise.name}, set ${setIndex + 1}`}
                     />
                     <TextInput
@@ -713,9 +795,10 @@ function cancelWorkout() {
                       value={set.reps}
                       onChangeText={(value) => updateSet(exercise.id, set.id, 'reps', value)}
                       keyboardType="number-pad"
-                      placeholder="8"
+                      // Show the previous reps as a gray hint, or 8 if no history exists.
+                      placeholder={
+                        previousPerformance[exercise.name.toLowerCase()]?.[setIndex]?.reps?.toString() ?? '8'}
                       placeholderTextColor={colors.textSecondary}
-                      selectTextOnFocus
                       accessibilityLabel={`Reps for ${exercise.name}, set ${setIndex + 1}`}
                     />
                     <Pressable
@@ -748,7 +831,7 @@ function cancelWorkout() {
           <Pressable style={styles.primaryButton} onPress={finishWorkout}>
             <Text style={styles.primaryButtonText}>{editingWorkoutId !== null ? 'Save Changes' : 'Finish Workout'}</Text>
           </Pressable>
-        </ScrollView>
+        </KeyboardAwareScrollView>
       )}
 
       {/* Exercise picker modal: choose a library exercise or enter a custom name. */}
@@ -758,8 +841,12 @@ function cancelWorkout() {
         transparent
         onRequestClose={() => setPickerVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
+<View style={styles.modalOverlay}>
+  <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    style={{ flex: 1, justifyContent: 'flex-end' }}
+  >
+    <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Add Exercise</Text>
               <Pressable onPress={() => setPickerVisible(false)} hitSlop={10}>
@@ -797,12 +884,13 @@ function cancelWorkout() {
                 <Text style={styles.muted}>No exercises found.</Text>
               )}
             </ScrollView>
-          </View>
-        </View>
-      </Modal>
+              </View>
+  </KeyboardAvoidingView>
+</View>
+</Modal>
             {/* Shows keyboard navigation and a Done button when an input is focused. */}
       <KeyboardToolbar />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -815,7 +903,7 @@ function createStyles(colors: (typeof Colors)['light'] | (typeof Colors)['dark']
     },
     content: {
       padding: 20,
-      paddingTop: 30,
+      paddingTop: 0,
       paddingBottom: 48,
       gap: 16,
     },
@@ -948,6 +1036,34 @@ function createStyles(colors: (typeof Colors)['light'] | (typeof Colors)['dark']
       gap: 10,
       marginTop: 8,
     },
+    // Container for the actions revealed when swiping a workout.
+historySwipeActions: {
+  flexDirection: 'row',
+  alignSelf: 'stretch',
+},
+
+// Blue button for editing a workout.
+swipeEditButton: {
+  backgroundColor: colors.accent,
+  justifyContent: 'center',
+  alignItems: 'center',
+  paddingHorizontal: 22,
+},
+
+// Red button for deleting a workout.
+swipeDeleteButton: {
+  backgroundColor: '#D9534F',
+  justifyContent: 'center',
+  alignItems: 'center',
+  paddingHorizontal: 22,
+},
+
+// Shared text styling for both swipe actions.
+swipeActionText: {
+  color: '#FFFFFF',
+  fontSize: 13,
+  fontWeight: '800',
+},
     historyActionButton: {
       paddingVertical: 8,
       paddingHorizontal: 14,
@@ -968,9 +1084,9 @@ function createStyles(colors: (typeof Colors)['light'] | (typeof Colors)['dark']
       backgroundColor: colors.backgroundElement,
       borderColor: colors.border,
       borderWidth: 1,
-      borderRadius: 14,
-      padding: 14,
-      gap: 8,
+      borderRadius: 12,
+      padding: 10,
+      gap: 4,
     },
     nameInput: {
       color: colors.text,
@@ -1105,7 +1221,7 @@ function createStyles(colors: (typeof Colors)['light'] | (typeof Colors)['dark']
       flexDirection: 'row',
       alignItems: 'center',
       gap: 7,
-      minHeight: 44,
+      minHeight: 0,
     },
     setNumber: {
       color: colors.text,
@@ -1119,7 +1235,7 @@ function createStyles(colors: (typeof Colors)['light'] | (typeof Colors)['dark']
       borderColor: colors.border,
       borderWidth: 1,
       borderRadius: 8,
-      minHeight: 38,
+      minHeight: 32,
       paddingHorizontal: 5,
       fontSize: 14,
       textAlign: 'center',

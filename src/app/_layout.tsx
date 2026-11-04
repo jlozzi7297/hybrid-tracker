@@ -1,7 +1,8 @@
-
+// Enables native swipe gestures throughout the app.
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import { useEffect } from 'react';
 import { Platform, useColorScheme } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 // Provides keyboard management throughout the app.
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -22,10 +23,11 @@ useEffect(() => {
 }, []);
 
     return (
-    // Makes keyboard controls available throughout the app.
+      <GestureHandlerRootView style={{ flex: 1 }}>
     <KeyboardProvider>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AppTabs />
       </ThemeProvider>
     </KeyboardProvider>
+     </GestureHandlerRootView>
   );}
