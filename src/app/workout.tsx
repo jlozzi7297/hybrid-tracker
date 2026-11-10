@@ -1,6 +1,8 @@
 import { Colors } from '@/constants/theme';
 import { dbPromise } from '@/database/database';
 import { useEffect, useMemo, useState } from 'react';
+// Provides pause and play icons for the workout timer.
+import { Ionicons } from '@expo/vector-icons';
 // Provides swipe gestures for workout history cards.
 import {
   Alert,
@@ -161,6 +163,8 @@ export default function WorkoutScreen() {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
+  // Track whether the workout timer is paused.
+  const [timerPaused, setTimerPaused] = useState(false);
   // Keep the workout name and editable duration with the current session.
   const [workoutName, setWorkoutName] = useState('Workout');
   const [durationDraft, setDurationDraft] = useState('00:00:00');
@@ -231,17 +235,18 @@ const [previousPerformance, setPreviousPerformance] = useState<
   }, []);
 
   // Update the timer once per second while a workout is active.
-  useEffect(() => {
-    if (!workoutActive || startedAt === null) {
-      return;
-    }
+// Update the timer once per second while a workout is active and not paused.
+useEffect(() => {
+  if (!workoutActive || startedAt === null || timerPaused) {
+    return;
+  }
 
-    const timer = setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
-    }, 1000);
+  const timer = setInterval(() => {
+    setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+  }, 1000);
 
-    return () => clearInterval(timer);
-  }, [workoutActive, startedAt]);
+  return () => clearInterval(timer);
+}, [workoutActive, startedAt, timerPaused]);
 
   // Filter the exercise library based on the user's search.
   const filteredExercises = useMemo(() => {
@@ -267,6 +272,18 @@ const [previousPerformance, setPreviousPerformance] = useState<
     setWorkoutActive(true);
   }
 
+  // Pause or resume the workout timer.
+function toggleTimerPause() {
+  if (!timerPaused) {
+    // Save the current elapsed time before pausing.
+    setElapsedSeconds(Math.floor((Date.now() - (startedAt ?? Date.now())) / 1000));
+    setTimerPaused(true);
+  } else {
+    // Restart the timer from the current time.
+    setStartedAt(Date.now() - elapsedSeconds * 1000);
+    setTimerPaused(false);
+  }
+}
   // Load a saved workout and all its exercises and sets into the editor.
   async function editSavedWorkout(workoutId: string) {
     try {
@@ -712,23 +729,51 @@ function cancelWorkout() {
             </Pressable>
           </View>
 
-          <View style={styles.timerCard}>
-            <Text style={styles.timerLabel}>DURATION {editingWorkoutId !== null ? '(HH:MM:SS)' : ''}</Text>
-            {editingWorkoutId !== null ? (
-              <TextInput
-                style={styles.durationInput}
-                value={durationDraft}
-                onChangeText={setDurationDraft}
-                placeholder="00:45:00"
-                placeholderTextColor={colors.textSecondary}
-                keyboardType="numbers-and-punctuation"
-                accessibilityLabel="Workout duration in hours, minutes, and seconds"
-              />
-            ) : (
-              <Text style={styles.timer}>{formatDuration(elapsedSeconds)}</Text>
-            )}
-            <Text style={styles.muted}>{completedSets} of {totalSets} sets completed</Text>
-          </View>
+<View style={styles.timerCard}>
+  <Text style={styles.timerLabel}>
+    DURATION {editingWorkoutId !== null ? '(HH:MM:SS)' : ''}
+  </Text>
+
+  {/* Keep the timer and its controls on the same row. */}
+  <View style={styles.timerRow}>
+    <View style={styles.timerInfo}>
+      {editingWorkoutId !== null ? (
+        <TextInput
+          style={styles.durationInput}
+          value={durationDraft}
+          onChangeText={setDurationDraft}
+          placeholder="00:45:00"
+          placeholderTextColor={colors.textSecondary}
+          keyboardType="numbers-and-punctuation"
+          accessibilityLabel="Workout duration in hours, minutes, and seconds"
+        />
+      ) : (
+        <Text style={styles.timer}>{formatDuration(elapsedSeconds)}</Text>
+      )}
+
+      <Text style={styles.muted}>
+        {completedSets} of {totalSets} sets completed
+      </Text>
+    </View>
+
+    {/* Pause or resume the workout using a theme-colored icon. */}
+    {editingWorkoutId === null && workoutActive && (
+      <Pressable
+        style={styles.timerControl}
+        onPress={toggleTimerPause}
+        hitSlop={10}
+        accessibilityRole="button"
+        accessibilityLabel={timerPaused ? 'Resume timer' : 'Pause timer'}
+      >
+        <Ionicons
+          name={timerPaused ? 'play' : 'pause'}
+          size={26}
+          color={colors.accent}
+        />
+      </Pressable>
+    )}
+  </View>
+</View>
 
           <View style={styles.nameCard}>
             <Text style={styles.timerLabel}>WORKOUT NAME</Text>
@@ -1010,7 +1055,7 @@ function createStyles(colors: (typeof Colors)['light'] | (typeof Colors)['dark']
     },
     historyCard: {
       padding: 16,
-      borderRadius: 14,
+      borderRadius: 0,
       backgroundColor: colors.backgroundElement,
       borderWidth: 1,
       borderColor: colors.border,
@@ -1040,6 +1085,7 @@ function createStyles(colors: (typeof Colors)['light'] | (typeof Colors)['dark']
 historySwipeActions: {
   flexDirection: 'row',
   alignSelf: 'stretch',
+  width: 156,
 },
 
 // Blue button for editing a workout.
@@ -1047,7 +1093,7 @@ swipeEditButton: {
   backgroundColor: colors.accent,
   justifyContent: 'center',
   alignItems: 'center',
-  paddingHorizontal: 22,
+  flex: 1,
 },
 
 // Red button for deleting a workout.
@@ -1055,7 +1101,9 @@ swipeDeleteButton: {
   backgroundColor: '#D9534F',
   justifyContent: 'center',
   alignItems: 'center',
-  paddingHorizontal: 22,
+  borderTopEndRadius: 14,
+  borderBottomEndRadius: 14,
+  flex: 1,
 },
 
 // Shared text styling for both swipe actions.
@@ -1123,9 +1171,30 @@ swipeActionText: {
       borderWidth: 1,
       borderRadius: 18,
       padding: 20,
-      alignItems: 'center',
       gap: 7,
     },
+    // Places the timer and pause/play control beside each other.
+timerRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  width: '100%',
+},
+
+// Keeps the timer text and completed-set count together.
+timerInfo: {
+  flex: 1,
+  gap: 4,
+},
+
+// Makes the pause/play icon easy to tap.
+timerControl: {
+  width: 44,
+  height: 44,
+  alignItems: 'center',
+  justifyContent: 'center',
+  marginLeft: 12,
+},
     timerLabel: {
       color: colors.textSecondary,
       fontSize: 10,
