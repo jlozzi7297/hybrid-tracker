@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 // Provides pause and play icons for the workout timer.
 import { Ionicons } from '@expo/vector-icons';
 // Provides swipe gestures for workout history cards.
+import { exerciseLibrary } from '@/data/exercises';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -23,36 +24,7 @@ import {
   KeyboardToolbar,
 } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// A starter exercise library. Users can choose from these when adding exercises.
-const exerciseLibrary = [
-  'Bench Press',
-  'Incline Dumbbell Press',
-  'Chest Fly',
-  'Shoulder Press',
-  'Lateral Raise',
-  'Tricep Pushdown',
-  'Pull-ups',
-  'Lat Pulldown',
-  'Dumbbell Row',
-  'Barbell Row',
-  'Bicep Curl',
-  'Hammer Curl',
-  'Squat',
-  'Landmine RDL',
-  'Zercher Squats',
-  'Leg Press',
-  'Romanian Deadlift',
-  'Leg Curl',
-  'Leg Extension',
-  'Hip Abductors',
-  'Hip Adductors',
-  'Calf Raise',
-  'Deadlift',
-  'Plank',
-  
-
-];
+import MuscleModel3D from '../components/MuscleModel3D';
 
 // Each set stores its own weight, reps, and completion status.
 type WorkoutSet = {
@@ -653,17 +625,24 @@ function cancelWorkout() {
           <Text style={styles.subtitle}>Keep it simple. Track your progress.</Text>
 
           <View style={styles.startCard}>
-            <View style={styles.startIcon}>
-              <Text style={styles.startIconText}>+</Text>
-            </View>
-            <Text style={styles.startTitle}>Ready to train?</Text>
-            <Text style={styles.startDescription}>
-              Start a workout, add your exercises, and record the weight and reps for every set.
-            </Text>
-            <Pressable style={styles.primaryButton} onPress={startWorkout}>
-              <Text style={styles.primaryButtonText}>Start New Workout</Text>
-            </Pressable>
-          </View>
+  <View style={{ flex: 1, alignItems: 'flex-start', gap: 12 }}>
+    <View style={styles.startIcon}>
+      <Text style={styles.startIconText}>+</Text>
+    </View>
+
+    <Text style={styles.startTitle}>Ready to train?</Text>
+
+    <Text style={styles.startDescription}>
+      Start a workout, add your exercises, and record the weight and reps for every set.
+    </Text>
+
+    <Pressable style={styles.primaryButton} onPress={startWorkout}>
+      <Text style={styles.primaryButtonText}>Start New Workout</Text>
+    </Pressable>
+  </View>
+
+  <MuscleModel3D />
+</View>
 
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent Workouts</Text>
@@ -974,9 +953,11 @@ function createStyles(colors: (typeof Colors)['light'] | (typeof Colors)['dark']
       borderWidth: 1,
       borderRadius: 20,
       padding: 22,
-      alignItems: 'flex-start',
+      alignItems: 'center',
       gap: 12,
       marginTop: 8,
+      flexDirection: 'row',
+      justifyContent: 'space-between'
     },
     startIcon: {
       width: 48,
